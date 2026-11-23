@@ -1,7 +1,7 @@
 {
   "name": "deploy-status-bar",
   "displayName": "Deploy Status Bar",
-  "description": "Run npm deploy from the VS Code status bar.",
+  "description": "Run deploy commands from the VS Code status bar.",
   "version": "1.0.0",
   "publisher": "local",
   "repository": {
@@ -23,18 +23,18 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Running a workspace's deploy script requires workspace trust."
+      "description": "Running a workspace's deploy commands requires workspace trust."
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "Running npm requires a local workspace folder."
+      "description": "Running deploy commands requires a local workspace folder."
     }
   },
   "contributes": {
     "commands": [
       {
         "command": "deployStatusBar.deploy",
-        "title": "Deploy: Run npm deploy"
+        "title": "Deploy: Run deploy command"
       }
     ]
   },

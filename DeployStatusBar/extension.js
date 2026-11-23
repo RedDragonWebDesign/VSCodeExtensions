@@ -1,4 +1,6 @@
 const { spawn } = require( 'node:child_process' );
+const fs = require( 'node:fs/promises' );
+const path = require( 'node:path' );
 const vscode = require( 'vscode' );
 
 const RESULT_DURATION_MS = 60000;
@@ -11,7 +13,7 @@ function activate( context ) {
 	);
 	statusBarItem.name = 'Deploy';
 	statusBarItem.text = 'Deploy';
-	statusBarItem.tooltip = 'Run npm run deploy';
+	statusBarItem.tooltip = 'Deploy workspace';
 	statusBarItem.command = DEPLOY_COMMAND;
 	statusBarItem.show();
 	context.subscriptions.push( statusBarItem );
@@ -22,7 +24,7 @@ function activate( context ) {
 	function resetStatus() {
 		statusBarItem.text = 'Deploy';
 		statusBarItem.color = undefined;
-		statusBarItem.tooltip = 'Run npm run deploy';
+		statusBarItem.tooltip = 'Deploy workspace';
 		statusBarItem.command = DEPLOY_COMMAND;
 	}
 
@@ -30,7 +32,7 @@ function activate( context ) {
 		running = false;
 		statusBarItem.text = success ? 'Deploy successful' : 'Deploy failed';
 		statusBarItem.color = success ? '#00c853' : '#f14c4c';
-		statusBarItem.tooltip = 'Run npm run deploy';
+		statusBarItem.tooltip = 'Deploy workspace';
 		statusBarItem.command = DEPLOY_COMMAND;
 		resultTimer = setTimeout( resetStatus, RESULT_DURATION_MS );
 	}
@@ -73,8 +75,47 @@ function activate( context ) {
 				return;
 			}
 
-			const command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
-			const args = process.platform === 'win32' ? [ '/d', '/s', '/c', 'npm run deploy' ] : [ 'run', 'deploy' ];
+			let config;
+			try {
+				config = await fs.readFile( path.join( folder.uri.fsPath, 'deploy.json' ), 'utf8' );
+			} catch ( error ) {
+				if ( error.code !== 'ENOENT' ) {
+					finishDeploy( false );
+					vscode.window.showErrorMessage( `Could not read deploy.json: ${ error.message }` );
+					return;
+				}
+			}
+
+			let command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
+			let args = process.platform === 'win32' ? [ '/d', '/s', '/c', 'npm run deploy' ] : [ 'run', 'deploy' ];
+			let description = 'npm run deploy';
+			if ( config !== undefined ) {
+				let entries;
+				try {
+					const parsed = JSON.parse( config );
+					if ( !parsed || typeof parsed !== 'object' || Array.isArray( parsed ) ||
+						Object.keys( parsed ).length === 0 ||
+						Object.entries( parsed ).some( ( [ name, value ] ) =>
+							!name.trim() || typeof value !== 'string' || !value.trim() ) ) {
+						throw new Error( 'Expected a non-empty object of names and PowerShell commands.' );
+					}
+					entries = Object.entries( parsed ).map( ( [ label, value ] ) => ( { label, command: value } ) );
+				} catch ( error ) {
+					finishDeploy( false );
+					vscode.window.showErrorMessage( `Invalid deploy.json: ${ error.message }` );
+					return;
+				}
+
+				const selected = await vscode.window.showQuickPick( entries, { placeHolder: 'Select a deploy command' } );
+				if ( !selected ) {
+					running = false;
+					resetStatus();
+					return;
+				}
+				command = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
+				args = [ '-NoProfile', '-NonInteractive', '-Command', selected.command ];
+				description = `Deploy "${ selected.label }"`;
+			}
 			const child = spawn( command, args, {
 				cwd: folder.uri.fsPath,
 				stdio: 'ignore',
@@ -88,13 +129,13 @@ function activate( context ) {
 			child.on( 'close', ( code, signal ) => {
 				if ( startError ) {
 					finishDeploy( false );
-					vscode.window.showErrorMessage( `Could not start npm deploy: ${ startError.message }` );
+					vscode.window.showErrorMessage( `Could not start ${ description }: ${ startError.message }` );
 				} else if ( code === 0 ) {
 					finishDeploy( true );
 				} else {
 					finishDeploy( false );
 					const detail = signal ? `signal ${ signal }` : `exit code ${ code }`;
-					vscode.window.showErrorMessage( `npm run deploy failed (${ detail }). Run it in a terminal for details.` );
+					vscode.window.showErrorMessage( `${ description } failed (${ detail }). Run it in a terminal for details.` );
 				}
 			} );
 		}
