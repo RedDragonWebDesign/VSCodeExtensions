@@ -1,0 +1,31 @@
+{
+  "name": "git-global-username",
+  "displayName": "Git Global Username",
+  "description": "Displays the global Git user.name in the VS Code status bar.",
+  "version": "1.0.0",
+  "publisher": "local",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RedDragonWebDesign/VSCodeExtensions.git",
+    "directory": "GitGlobalUsername"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:gitGlobalUser.refresh"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitGlobalUser.refresh",
+        "title": "Git Global Username: Refresh"
+      }
+    ]
+  }
+}
