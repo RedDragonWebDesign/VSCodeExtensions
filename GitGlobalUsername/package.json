@@ -1,7 +1,7 @@
 {
   "name": "git-global-username",
   "displayName": "Git Global Username",
-  "description": "Displays the global Git user.name in the VS Code status bar.",
+  "description": "Displays the global Git user.name and runs name-change shortcuts from the status bar.",
   "version": "1.0.0",
   "publisher": "local",
   "repository": {
@@ -18,14 +18,22 @@
   "main": "./extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:gitGlobalUser.refresh"
+    "onCommand:gitGlobalUser.refresh",
+    "onCommand:gitGlobalUser.chooseShortcut"
   ],
   "contributes": {
     "commands": [
       {
         "command": "gitGlobalUser.refresh",
         "title": "Git Global Username: Refresh"
+      },
+      {
+        "command": "gitGlobalUser.chooseShortcut",
+        "title": "Git Global Username: Run Name-Change Shortcut"
       }
     ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
   }
 }

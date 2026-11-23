@@ -7,6 +7,11 @@ outside VS Code are picked up without reloading the window.
 The extension reads `git config --global --get user.name`. It does not show
 repository-local `user.name` values.
 
+On Windows, click the status bar item to choose and run a shortcut named
+`GitHub change to *.lnk` from your user profile's `Desktop` folder. PowerShell
+must be available on the extension host. The shortcut runs with your normal
+user permissions; the displayed name updates when Git's configuration changes.
+
 ## Install
 
 1. Install Node.js if it is not already installed.
