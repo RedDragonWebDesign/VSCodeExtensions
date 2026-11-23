@@ -22,7 +22,7 @@ repository-local `user.name` values.
    npx --yes @vscode/vsce package
    ```
 
-   This creates `git-global-username-1.0.0.vsix` in this folder.
+   This creates `git-global-username.vsix` in this folder.
 
 4. In VS Code, open the Command Palette (`Ctrl+Shift+P`), run
    **Extensions: Install from VSIX...**, and select that `.vsix` file.
