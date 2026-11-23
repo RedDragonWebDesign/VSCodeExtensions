@@ -20,6 +20,7 @@ function activate( context ) {
 
 	let running = false;
 	let resultTimer;
+	let taskId = 0;
 
 	function resetStatus() {
 		statusBarItem.text = 'Deploy';
@@ -86,9 +87,6 @@ function activate( context ) {
 				}
 			}
 
-			let command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
-			let args = process.platform === 'win32' ? [ '/d', '/s', '/c', 'npm run deploy' ] : [ 'run', 'deploy' ];
-			let description = 'npm run deploy';
 			if ( config !== undefined ) {
 				let entries;
 				try {
@@ -112,10 +110,57 @@ function activate( context ) {
 					resetStatus();
 					return;
 				}
-				command = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
-				args = [ '-NoProfile', '-NonInteractive', '-Command', selected.command ];
-				description = `Deploy "${ selected.label }"`;
+				const definition = { type: 'deployStatusBar', id: ++taskId };
+				const task = new vscode.Task(
+					definition, folder, `Deploy "${ selected.label }"`, 'Deploy Status Bar',
+					new vscode.ShellExecution( selected.command, { cwd: folder.uri.fsPath } )
+				);
+				task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, focus: true };
+
+				let finished = false;
+				const isDeployTask = ( event ) =>
+					event.execution.task.definition.type === definition.type &&
+					event.execution.task.definition.id === definition.id;
+				const complete = ( code ) => {
+					if ( finished ) {
+						return;
+					}
+					finished = true;
+					processListener.dispose();
+					endListener.dispose();
+					finishDeploy( code === 0 );
+					if ( code !== 0 ) {
+						const detail = code === undefined ? 'no exit code' : `exit code ${ code }`;
+						vscode.window.showErrorMessage( `Deploy "${ selected.label }" failed (${ detail }). See the task terminal for details.` );
+					}
+				};
+				const processListener = vscode.tasks.onDidEndTaskProcess( ( event ) => {
+					if ( isDeployTask( event ) ) {
+						complete( event.exitCode );
+					}
+				} );
+				const endListener = vscode.tasks.onDidEndTask( ( event ) => {
+					if ( isDeployTask( event ) ) {
+						complete( undefined );
+					}
+				} );
+				context.subscriptions.push( processListener, endListener );
+				try {
+					await vscode.tasks.executeTask( task );
+				} catch ( error ) {
+					if ( !finished ) {
+						finished = true;
+						processListener.dispose();
+						endListener.dispose();
+						finishDeploy( false );
+						vscode.window.showErrorMessage( `Could not start Deploy "${ selected.label }": ${ error.message }` );
+					}
+				}
+				return;
 			}
+			const command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npm';
+			const args = process.platform === 'win32' ? [ '/d', '/s', '/c', 'npm run deploy' ] : [ 'run', 'deploy' ];
+			const description = 'npm run deploy';
 			const child = spawn( command, args, {
 				cwd: folder.uri.fsPath,
 				stdio: 'ignore',

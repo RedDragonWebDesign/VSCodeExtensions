@@ -14,11 +14,42 @@ function setup( folders, useRealSpawn = false ) {
 	const calls = [];
 	const timers = [];
 	const picks = [];
+	const tasks = [];
+	const taskEvents = new EventEmitter();
+	let taskError;
 	let command;
 	let selectedFolder;
 	let selectedCommand;
 	const vscode = {
 		StatusBarAlignment: { Left: 1 },
+		TaskRevealKind: { Always: 1 },
+		Task: class {
+			constructor( definition, scope, name, source, execution ) {
+				Object.assign( this, { definition, scope, name, source, execution } );
+			}
+		},
+		ShellExecution: class {
+			constructor( commandLine, options ) {
+				Object.assign( this, { commandLine, options } );
+			}
+		},
+		tasks: {
+			onDidEndTaskProcess: ( callback ) => {
+				taskEvents.on( 'process', callback );
+				return { dispose: () => taskEvents.off( 'process', callback ) };
+			},
+			onDidEndTask: ( callback ) => {
+				taskEvents.on( 'end', callback );
+				return { dispose: () => taskEvents.off( 'end', callback ) };
+			},
+			executeTask: async ( task ) => {
+				if ( taskError ) {
+					throw taskError;
+				}
+				tasks.push( task );
+				return { task };
+			}
+		},
 		window: {
 			createStatusBarItem: () => status,
 			showErrorMessage: ( message ) => errors.push( message ),
@@ -65,10 +96,13 @@ function setup( folders, useRealSpawn = false ) {
 	require( '../extension' ).activate( context );
 
 	return {
-		status, errors, children, calls, timers, picks, context,
+		status, errors, children, calls, timers, picks, tasks, context,
 		run: () => command(),
 		select: ( folder ) => { selectedFolder = folder; },
 		selectCommand: ( name ) => { selectedCommand = name; },
+		failTask: ( error ) => { taskError = error; },
+		endTaskProcess: ( task, exitCode ) => taskEvents.emit( 'process', { execution: { task }, exitCode } ),
+		endTask: ( task ) => taskEvents.emit( 'end', { execution: { task } } ),
 		restore: () => {
 			Module._load = originalLoad;
 			childProcess.spawn = originalSpawn;
@@ -174,7 +208,7 @@ test( 'requires a local folder and uses the selected multi-root folder', async (
 	assert.equal( app.calls[ 0 ][ 2 ].cwd, folder.uri.fsPath );
 } );
 
-test( 'selects and runs a configured PowerShell command in the selected workspace', async ( t ) => {
+test( 'runs the selected command in an interactive task in the selected workspace', async ( t ) => {
 	const directory = fs.mkdtempSync( path.join( os.tmpdir(), 'deploy-status-test-' ) );
 	const config = path.join( directory, 'deploy.json' );
 	fs.writeFileSync( config, JSON.stringify( {
@@ -192,12 +226,15 @@ test( 'selects and runs a configured PowerShell command in the selected workspac
 	app.selectCommand( 'Production' );
 	await app.run();
 	assert.deepEqual( app.picks[ 0 ].map( ( item ) => item.label ), [ 'Staging', 'Production' ] );
-	assert.equal( app.calls[ 0 ][ 0 ], process.platform === 'win32' ? 'powershell.exe' : 'pwsh' );
-	assert.deepEqual( app.calls[ 0 ][ 1 ], [
-		'-NoProfile', '-NonInteractive', '-Command', '$env:TARGET = "prod"; npm run deploy'
-	] );
-	assert.equal( app.calls[ 0 ][ 2 ].cwd, directory );
-	app.children[ 0 ].emit( 'close', 1, null );
+	assert.equal( app.calls.length, 0 );
+	assert.equal( app.tasks[ 0 ].scope, configuredFolder );
+	assert.equal( app.tasks[ 0 ].execution.commandLine, '$env:TARGET = "prod"; npm run deploy' );
+	assert.equal( app.tasks[ 0 ].execution.options.cwd, directory );
+	assert.equal( app.tasks[ 0 ].presentationOptions.reveal, 1 );
+	assert.equal( app.tasks[ 0 ].presentationOptions.focus, true );
+	app.endTaskProcess( { definition: { type: 'other', id: 1 } }, 0 );
+	assert.equal( app.status.text, 'Deploy in progress' );
+	app.endTaskProcess( app.tasks[ 0 ], 1 );
 	assert.match( app.errors[ 0 ], /Deploy "Production" failed \(exit code 1\)/ );
 	assert.equal( app.status.text, 'Deploy failed' );
 } );
@@ -219,10 +256,11 @@ test( 'cancelling the configured command picker starts nothing and resets status
 	assert.deepEqual( app.errors, [] );
 	app.selectCommand( 'Staging' );
 	await app.run();
-	assert.equal( app.calls.length, 1 );
-	app.children[ 0 ].emit( 'error', new Error( 'PowerShell not found' ) );
-	app.children[ 0 ].emit( 'close', -2, null );
-	assert.match( app.errors[ 0 ], /Could not start Deploy "Staging": PowerShell not found/ );
+	assert.equal( app.tasks.length, 1 );
+	app.endTaskProcess( app.tasks[ 0 ], 0 );
+	assert.equal( app.status.text, 'Deploy successful' );
+	app.endTask( app.tasks[ 0 ] );
+	assert.deepEqual( app.errors, [] );
 } );
 
 test( 'reports invalid or unreadable deploy configuration without falling back to npm', async ( t ) => {
@@ -248,35 +286,27 @@ test( 'reports invalid or unreadable deploy configuration without falling back t
 	assert.equal( app.calls.length, 0 );
 } );
 
-test( 'runs an actual configured PowerShell command', async ( t ) => {
-	const shell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
-	const probe = childProcess.spawnSync( shell, [ '-NoProfile', '-NonInteractive', '-Command', 'exit 0' ] );
-	if ( probe.error && probe.error.code === 'ENOENT' ) {
-		t.skip( 'PowerShell is not installed' );
-		return;
-	}
-	assert.equal( probe.status, 0 );
+test( 'reports task startup failure and a task ending without an exit code', async ( t ) => {
 	const directory = fs.mkdtempSync( path.join( os.tmpdir(), 'deploy-status-test-' ) );
 	const config = path.join( directory, 'deploy.json' );
-	const output = path.join( directory, 'deployed.txt' );
-	fs.writeFileSync( config, JSON.stringify( {
-		Staging: "Set-Content -LiteralPath 'deployed.txt' -Value 'staging'"
-	} ) );
-	const app = setup( [ { uri: { scheme: 'file', fsPath: directory } } ], true );
+	fs.writeFileSync( config, '{"Staging":"npm run deploy"}' );
+	const app = setup( [ { uri: { scheme: 'file', fsPath: directory } } ] );
 	t.after( () => {
 		app.restore();
-		if ( fs.existsSync( output ) ) {
-			fs.unlinkSync( output );
-		}
 		fs.unlinkSync( config );
 		fs.rmdirSync( directory );
 	} );
 	app.selectCommand( 'Staging' );
+	app.failTask( new Error( 'task unavailable' ) );
 	await app.run();
-	await new Promise( ( resolve ) => app.children[ 0 ].once( 'close', resolve ) );
-	assert.deepEqual( app.errors, [] );
-	assert.equal( app.status.text, 'Deploy successful' );
-	assert.equal( fs.readFileSync( output, 'utf8' ).trim(), 'staging' );
+	assert.match( app.errors[ 0 ], /Could not start Deploy "Staging": task unavailable/ );
+	assert.equal( app.status.text, 'Deploy failed' );
+	app.failTask( undefined );
+	await app.run();
+	assert.equal( app.tasks[ 0 ].execution.commandLine, 'npm run deploy' );
+	app.endTask( app.tasks[ 0 ] );
+	assert.match( app.errors[ 1 ], /no exit code/ );
+	assert.equal( app.status.text, 'Deploy failed' );
 } );
 
 test( 'runs an actual npm deploy script', async ( t ) => {

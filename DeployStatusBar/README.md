@@ -1,10 +1,10 @@
 # Deploy Status Bar
 
 Click **Deploy** on the left side of the VS Code status bar to run a deploy
-command silently in the open workspace folder. While it runs, the
+command in the open workspace folder. While it runs, the
 status is yellow and cannot be clicked. On success it turns green; on failure
 it turns red and shows an error notification. The result remains for 60 seconds
-or until clicked again. Run the command in a terminal to see its output.
+or until clicked again.
 
 In a multi-folder workspace, select the folder to deploy. Only one deploy can
 run at a time. This extension requires a trusted, local workspace.
@@ -19,12 +19,13 @@ a command by name instead of running `npm run deploy`:
 }
 ```
 
-Commands run in the selected folder using Windows PowerShell on Windows or
-PowerShell (`pwsh`) on other platforms. PowerShell must be installed on the
-extension host. If `deploy.json` is absent, the extension runs
-`npm run deploy` as before, requiring Node.js and npm on the extension host.
-Invalid or unreadable configuration is reported as an error. Deploy commands
-run without terminal output.
+Configured commands run in an interactive VS Code task terminal in the
+selected folder, using the configured task shell. Output and prompts are visible
+there. Configure the terminal's default or automation profile if a particular
+shell is required. If `deploy.json` is absent, the extension runs
+`npm run deploy` silently as before, requiring Node.js and npm on the extension
+host. Run that command in a terminal to see its output. Invalid or unreadable
+configuration is reported as an error.
 
 ## Install
 
