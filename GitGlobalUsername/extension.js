@@ -5,7 +5,7 @@ const REFRESH_INTERVAL_MS = 2000;
 
 function activate( context ) {
 	const statusBarItem = vscode.window.createStatusBarItem(
-		vscode.StatusBarAlignment.Right,
+		vscode.StatusBarAlignment.Left,
 		100
 	);
 	statusBarItem.name = 'Git Global Username';
